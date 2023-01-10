@@ -13,7 +13,7 @@ import torch.backends.cudnn as cudnn
 import os
 import argparse
 from tqdm import tqdm
-from loss import LDAMLoss, compute_adjustment, FCEloss_alpha, FCEloss_beta
+from loss import LDAMLoss, compute_adjustment, FCEloss
 from net import resnet32
 from dataset import IMBALANCECIFAR10, IMBALANCECIFAR100
 
@@ -39,8 +39,8 @@ def train(epoch):
         elif args.losstype=='LogitAdjust':
             output_ad = output + logit_ajust
             loss = criterion(output_ad, targets)
-        elif args.losstype=='FCE_a' or args.losstype=='FCE_b':
-            loss = criterion(output, targets) + criterion_fce(output, targets)
+        elif args.losstype=='FCE':
+            loss = criterion(output, targets)
 
         optimizer.zero_grad()
         loss.backward()
@@ -78,8 +78,8 @@ def test(epoch):
                 loss = criterion(output, targets)
             elif args.losstype=='LogitAdjust':
                 loss = criterion(output, targets)
-            elif args.losstype=='FCE_a' or args.losstype=='FCE_b':
-                loss = criterion(output, targets) + criterion_fce(output, targets)
+            elif args.losstype=='FCE':
+                loss = criterion(output, targets)
 
 
             output = F.softmax(output, dim=1)
@@ -190,15 +190,9 @@ if __name__ == '__main__':
         criterion = nn.CrossEntropyLoss().cuda(device)
         model = resnet32(num_classes=n_classes, use_norm=False).cuda(device)
         logit_ajust = compute_adjustment(train_loader)
-    ### FCEloss type alpha ###
-    elif args.losstype=='FCE_a':
-        criterion = nn.CrossEntropyLoss().cuda(device)
-        criterion_fce = FCEloss_alpha(cls_num=cls_num_lists).cuda(device)
-        model = resnet32(num_classes=n_classes, use_norm=False).cuda(device)
-    ### FCEloss type beta
-    elif args.losstype=='FCE_b':
-        criterion = nn.CrossEntropyLoss().cuda(device)
-        criterion_fce = FCEloss_beta(n_classes=n_classes, cls_num=cls_num_lists).cuda(device)
+    ### FCEloss ###
+    elif args.losstype=='FCE':
+        criterion = FCEloss(cls_num=cls_num_lists).cuda(device)
         model = resnet32(num_classes=n_classes, use_norm=False).cuda(device)
 
 
