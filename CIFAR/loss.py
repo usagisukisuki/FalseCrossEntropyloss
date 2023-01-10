@@ -5,92 +5,36 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class FCEloss_alpha(nn.Module):
-    def __init__(self, n_classes=10, cls_num=None, device=None):
+class FCEloss(nn.Module):
+    def __init__(self, n_classes=10, temp = 4.0, weight=None, device=None):
         super().__init__()
         self._n_classes = n_classes
         self.device = device
-
-        per_cls_weights = []
-        cls_num = np.array(cls_num)
-        for i in range(len(cls_num)):
-            w = np.where(np.array(cls_num[i]) < cls_num, 1, 0)
-        per_cls_weights.append(w)
-        self.per_cls_weights = torch.Tensor(per_cls_weights)
-
-    def head_softmax(self, x, y):
-        x_mx, _ = x.max(dim=1)
-        x_mx = x_mx.unsqueeze(dim=1)
-        x = x - x_mx
-        x = torch.exp(x)
-        p = x * y
-        yk = p.sum(dim=1)/x.sum(dim=1)
-        return yk
+        self.weight = weight
+        self.temp = temp
 
     def forward(self, pred, teacher):
         onehot_label = torch.eye(self._n_classes)[teacher]
-        sup_mask = torch.ones((onehot_label.shape[0], onehot_label.shape[1]))
-        supsup_mask = torch.zeros((onehot_label.shape[0], onehot_label.shape[1]))
+        mask1 = torch.ones((onehot_label.shape[0], onehot_label.shape[1]))
+        mask2 = torch.zeros((onehot_label.shape[0], onehot_label.shape[1]))
+        mask1[onehot_label==1] = 0
 
-        sup_mask[onehot_label==1] = 0
+        pred = F.softmax(pred/self.temp, dim=1)
 
-        for i in range(len(sup_mask)):
-            mask_vector = torch.zeros((onehot_label.shape[1]))
-            pred_vector = pred[i].cpu()
-            pred_tr = pred_vector[teacher[i]]
-            mask_vector[pred_vector > 0] = 1
+        sup_mask = []
+        for j in range(pred.shape[0]):
+            mask3 = torch.zeros((pred.shape[1]))
+            pp = pred[j].cpu()
+            pt = pp[teacher[j]]
+            mask2[j] = mask1[j] * self.weight[teacher[j]]
 
-            supsup_mask[i] = sup_mask[i] * self.per_cls_weights[:,teacher[i]] * mask_vector
+        mask2 = torch.Tensor(np.array(mask2)).cuda()
+        onehot_label = onehot_label.cuda()
 
+        loss = -1 * (onehot_label * torch.log(pred + 1e-7) + mask2 * torch.log(1 - pred + 1e-7))
+        loss = loss.sum(dim=1)
 
-        supsup_mask = supsup_mask.cuda(self.device)
-        loss = torch.log(self.head_softmax(pred, supsup_mask)+1e-7)
-
-        return torch.mean(loss)
-
-
-class FCEloss_beta(nn.Module):
-    def __init__(self, n_classes=10, cls_num=None, device=None):
-        super().__init__()
-        self._n_classes = n_classes
-        self.device = device
-
-        per_cls_weights = []
-        cls_num = np.array(cls_num)
-        for i in range(len(cls_num)):
-            w = np.where(np.array(cls_num[i]) < cls_num, 1, 0)
-        per_cls_weights.append(w)
-        self.per_cls_weights = torch.Tensor(per_cls_weights)
-
-    def head_softmax(self, x, y):
-        x_mx, _ = x.max(dim=1)
-        x_mx = x_mx.unsqueeze(dim=1)
-        x = x - x_mx
-        x = torch.exp(x)
-        p = x * y
-        yk = p.sum(dim=1)/x.sum(dim=1)
-        return yk
-
-    def forward(self, pred, teacher):
-        onehot_label = torch.eye(self._n_classes)[teacher]
-        sup_mask = torch.ones((onehot_label.shape[0], onehot_label.shape[1]))
-        supsup_mask = torch.zeros((onehot_label.shape[0], onehot_label.shape[1]))
-
-        sup_mask[onehot_label==1] = 0
-
-        for i in range(len(sup_mask)):
-            mask_vector = torch.zeros((onehot_label.shape[1]))
-            pred_vector = pred[i].cpu()
-            pred_tr = pred_vector[teacher[i]]
-            mask_vector[pred_vector > 0] = 1
-
-            supsup_mask[i] = sup_mask[i] * self.per_cls_weights[:,teacher[i]] * mask_vector
-
-        supsup_mask = supsup_mask.cuda(self.device)
-
-        loss = -1 * torch.log(1 - self.head_softmax(pred, supsup_mask)+1e-7)
-
-        return torch.mean(loss)
+        return loss
 
 
 class LDAMLoss(nn.Module):
